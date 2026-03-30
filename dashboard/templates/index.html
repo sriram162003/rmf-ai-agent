@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RMF AI Agent Dashboard</title>
+  <!-- roslibjs — browser client for rosbridge WebSocket -->
+  <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --surface2: #1e2535;
+      --border:   #2d3148;
+      --accent:   #7c8cf8;
+      --accent2:  #4f62d8;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --amber:    #f59e0b;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 52px 1fr;
+      grid-template-columns: 340px 1fr 300px;
+      grid-template-areas:
+        "header header header"
+        "chat   map    sidebar";
+      overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────── */
+    header {
+      grid-area: header;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 10px;
+    }
+    header h1 { font-size: 17px; font-weight: 700; color: var(--accent); }
+    .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--muted); }
+    .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+    .conn-pill {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--muted);
+      background: var(--surface2); padding: 3px 10px; border-radius: 999px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot.green { background: var(--green); }
+    .dot.red   { background: var(--red); }
+    .dot.amber { background: var(--amber); }
+
+    /* ── Chat Panel ──────────────────────────────────── */
+    #chat-panel {
+      grid-area: chat;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .panel-title {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted);
+      padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+
+    #chat-messages {
+      flex: 1; overflow-y: auto;
+      padding: 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .msg {
+      max-width: 90%; padding: 9px 12px; border-radius: 10px;
+      line-height: 1.55; font-size: 13px; white-space: pre-wrap; word-break: break-word;
+    }
+    .msg.user   { align-self: flex-end; background: var(--accent2); color: #fff; border-bottom-right-radius: 3px; }
+    .msg.agent  { align-self: flex-start; background: var(--surface2); color: var(--text); border-bottom-left-radius: 3px; }
+    .msg.system { align-self: center; background: #1e1b4b; color: #a5b4fc; font-size: 11px; }
+
+    #chat-input-area {
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 8px;
+    }
+    #chat-input {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 7px; color: var(--text); padding: 8px 12px;
+      font-size: 13px; outline: none; resize: none; height: 40px;
+    }
+    #chat-input:focus { border-color: var(--accent2); }
+    #send-btn {
+      background: var(--accent2); color: #fff; border: none;
+      border-radius: 7px; padding: 0 14px; cursor: pointer;
+      font-size: 13px; font-weight: 500; transition: background .15s;
+    }
+    #send-btn:hover { background: #3b4fd8; }
+    #send-btn:disabled { background: var(--border); cursor: not-allowed; }
+
+    /* ── Map Panel ───────────────────────────────────── */
+    #map-panel {
+      grid-area: map;
+      display: flex; flex-direction: column;
+      overflow: hidden; position: relative;
+    }
+    #map-toolbar {
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface);
+    }
+    #map-toolbar select {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); padding: 3px 8px; border-radius: 5px; font-size: 12px;
+    }
+    #map-toolbar button {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--accent); padding: 3px 10px; border-radius: 5px;
+      font-size: 12px; cursor: pointer;
+    }
+    #map-toolbar button:hover { background: var(--border); }
+    .ros-badge {
+      margin-left: auto; font-size: 11px;
+      display: flex; align-items: center; gap: 4px; color: var(--muted);
+    }
+
+    #map-canvas-wrap {
+      flex: 1; overflow: hidden; position: relative; background: #080b12;
+    }
+    #map-canvas {
+      position: absolute; top: 0; left: 0;
+      cursor: grab;
+    }
+    #map-canvas:active { cursor: grabbing; }
+
+    #map-legend {
+      position: absolute; bottom: 10px; left: 10px;
+      background: rgba(26,29,39,.85); border: 1px solid var(--border);
+      border-radius: 7px; padding: 8px 12px; font-size: 11px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+    /* Door/Lift status overlay */
+    #infra-overlay {
+      position: absolute; top: 8px; right: 8px;
+      display: flex; flex-direction: column; gap: 6px;
+      pointer-events: none;
+    }
+    .infra-chip {
+      background: rgba(26,29,39,.9); border: 1px solid var(--border);
+      border-radius: 5px; padding: 4px 10px;
+      font-size: 11px; display: flex; align-items: center; gap: 6px;
+      color: var(--text); pointer-events: all; cursor: default;
+    }
+    .infra-chip .dot { width: 7px; height: 7px; }
+
+    /* ── Right Sidebar ───────────────────────────────── */
+    #sidebar {
+      grid-area: sidebar;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sb-section { border-bottom: 1px solid var(--border); }
+    .sb-section h2 {
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted);
+      padding: 9px 14px 6px;
+    }
+    .sb-body {
+      padding: 0 12px 10px;
+      overflow-y: auto;
+      max-height: 200px;
+    }
+    .sb-body.flex1 { max-height: none; flex: 1; }
+
+    /* Fleet cards */
+    .fleet-card {
+      background: var(--surface2); border-radius: 7px;
+      padding: 8px 10px; margin-bottom: 7px; font-size: 12px;
+    }
+    .fleet-name { font-weight: 600; color: var(--accent); }
+    .fleet-meta { color: var(--muted); font-size: 11px; margin: 2px 0 5px; }
+    .robot-row {
+      display: flex; align-items: center; gap: 5px;
+      padding: 2px 0; font-size: 11px; color: #94a3b8;
+    }
+    .tag {
+      font-size: 10px; padding: 1px 5px; border-radius: 3px;
+      background: var(--bg);
+    }
+    .tag.idle      { color: var(--green); }
+    .tag.underway  { color: #60a5fa; }
+    .tag.charging  { color: var(--amber); }
+    .tag.error     { color: var(--red); }
+
+    /* Doors */
+    .door-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+    }
+    .door-row:last-child { border-bottom: none; }
+    .door-btns { display: flex; gap: 4px; }
+    .btn-sm {
+      font-size: 10px; padding: 2px 8px; border-radius: 4px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); cursor: pointer;
+    }
+    .btn-sm:hover { background: var(--surface2); }
+    .btn-sm.open  { color: var(--green); border-color: #14532d; }
+    .btn-sm.close { color: var(--red);   border-color: #450a0a; }
+
+    /* Lifts */
+    .lift-row {
+      padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+    }
+    .lift-row:last-child { border-bottom: none; }
+    .lift-floor-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .btn-floor {
+      font-size: 10px; padding: 2px 8px; border-radius: 4px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--accent); cursor: pointer;
+    }
+    .btn-floor:hover { background: var(--surface2); }
+    .btn-floor.active { background: var(--accent2); color: #fff; border-color: var(--accent2); }
+
+    /* Approval cards */
+    .approval-card {
+      background: #2d1b0e; border: 1px solid #78350f;
+      border-radius: 7px; padding: 8px 10px; margin-bottom: 7px; font-size: 12px;
+    }
+    .approval-action { font-weight: 600; color: #fb923c; margin-bottom: 2px; }
+    .approval-desc   { color: #d4a07a; font-size: 11px; margin-bottom: 7px; line-height: 1.4; }
+    .approval-btns   { display: flex; gap: 6px; }
+    .btn-approve { flex:1; background:#15803d; color:#fff; border:none; border-radius:5px; padding:4px 0; cursor:pointer; font-size:11px; }
+    .btn-reject  { flex:1; background:#991b1b; color:#fff; border:none; border-radius:5px; padding:4px 0; cursor:pointer; font-size:11px; }
+    .btn-approve:hover { background:#166534; }
+    .btn-reject:hover  { background:#7f1d1d; }
+
+    .empty { color: var(--muted); font-size: 11px; text-align: center; padding: 10px 0; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  </style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══════════════════════════════════════════════════════ -->
+<header>
+  <h1>RMF AI Agent</h1>
+  <span class="badge">Open-RMF</span>
+  <div class="hdr-right">
+    <div class="conn-pill">
+      <span class="dot" id="ros-dot" style="background:var(--muted)"></span>
+      <span id="ros-text">ROS Bridge</span>
+    </div>
+    <div class="conn-pill">
+      <span class="dot" id="rmf-dot" style="background:var(--muted)"></span>
+      <span id="rmf-text">RMF API</span>
+    </div>
+    <div class="conn-pill">
+      <span class="dot" id="ws-dot" style="background:var(--muted)"></span>
+      <span id="ws-text">Agent</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ CHAT PANEL ═══════════════════════════════════════════════════ -->
+<div id="chat-panel">
+  <div class="panel-title">AI Agent Chat</div>
+  <div id="chat-messages">
+    <div class="msg system">Connected · Type a natural language command to control the fleet.</div>
+  </div>
+  <div id="chat-input-area">
+    <textarea id="chat-input" placeholder="e.g. Open door east-1 and send robot to floor 2…" rows="1"></textarea>
+    <button id="send-btn">Send</button>
+  </div>
+</div>
+
+<!-- ═══ MAP PANEL ════════════════════════════════════════════════════ -->
+<div id="map-panel">
+  <div id="map-toolbar">
+    <span style="font-size:12px;color:var(--muted);font-weight:600">GAZEBO LIVE MAP</span>
+    <select id="level-select" title="Select floor level"></select>
+    <button onclick="resetMapView()">Reset View</button>
+    <button onclick="refreshInfra()">Refresh</button>
+    <div class="ros-badge">
+      <span class="dot" id="ros-map-dot" style="background:var(--muted)"></span>
+      <span id="ros-map-text">rosbridge</span>
+    </div>
+  </div>
+  <div id="map-canvas-wrap">
+    <canvas id="map-canvas"></canvas>
+    <div id="infra-overlay"></div>
+    <div id="map-legend">
+      <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span>Robot (idle)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#60a5fa"></span>Robot (moving)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span>Robot (charging)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span>Waypoint</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#22d3ee;border-radius:2px;width:12px;height:4px"></span>Lane</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SIDEBAR ══════════════════════════════════════════════════════ -->
+<div id="sidebar">
+
+  <div class="sb-section">
+    <h2>Robot Fleets <button onclick="scanFleets()" style="float:right;font-size:10px;background:none;border:none;color:var(--accent);cursor:pointer">Scan</button></h2>
+    <div class="sb-body" id="fleet-list"><div class="empty">Scanning…</div></div>
+  </div>
+
+  <div class="sb-section">
+    <h2>Doors</h2>
+    <div class="sb-body" id="door-list"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="sb-section">
+    <h2>Lifts</h2>
+    <div class="sb-body" id="lift-list"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="sb-section">
+    <h2>Approvals <span id="approval-badge" style="color:var(--amber);margin-left:4px"></span></h2>
+    <div class="sb-body" id="approval-list"><div class="empty">No pending approvals</div></div>
+  </div>
+
+  <div class="sb-section" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <h2>Task Log</h2>
+    <div class="sb-body flex1" id="task-log"><div class="empty">No tasks yet</div></div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════════
+let buildingData = null;    // RMF building map
+let currentLevel = 'L1';
+let robotPositions = {};    // {robotName: {x, y, level, yaw}}
+let doorStates = {};        // {doorName: {mode}}
+let liftStates = {};        // {liftName: {current_floor}}
+
+// Canvas pan/zoom
+let mapScale = 1, mapOffX = 0, mapOffY = 0;
+let isDragging = false, dragStart = {x:0, y:0};
+
+// ═══════════════════════════════════════════════════════════════════
+// ROSBRIDGE CONNECTION
+// ═══════════════════════════════════════════════════════════════════
+let ros = null;
+
+async function initRosBridge() {
+  const cfg = await fetch('/api/bridge-config').then(r => r.json());
+  currentLevel = cfg.default_level || 'L1';
+
+  ros = new ROSLIB.Ros({ url: cfg.rosbridge_url });
+
+  ros.on('connection', () => {
+    setDot('ros-dot', 'green'); setDot('ros-map-dot', 'green');
+    document.getElementById('ros-text').textContent = 'ROS Bridge';
+    document.getElementById('ros-map-text').textContent = 'rosbridge ✓';
+    subscribeRosTopics();
+  });
+  ros.on('error', () => {
+    setDot('ros-dot', 'amber'); setDot('ros-map-dot', 'amber');
+    document.getElementById('ros-map-text').textContent = 'rosbridge ✗';
+  });
+  ros.on('close', () => {
+    setDot('ros-dot', 'red'); setDot('ros-map-dot', 'red');
+    document.getElementById('ros-map-text').textContent = 'disconnected';
+    // retry after 5s
+    setTimeout(initRosBridge, 5000);
+  });
+}
+
+function subscribeRosTopics() {
+  // fleet_states — live robot positions
+  const fleetSub = new ROSLIB.Topic({
+    ros, name: '/fleet_states',
+    messageType: 'rmf_fleet_msgs/FleetState'
+  });
+  fleetSub.subscribe(msg => {
+    (msg.robots || []).forEach(r => {
+      robotPositions[r.name] = {
+        x: r.location.x, y: r.location.y,
+        yaw: r.location.yaw,
+        level: r.location.level_name,
+        mode: r.mode ? r.mode.mode : 0,
+        battery: r.battery_percent,
+        fleet: msg.name,
+      };
+    });
+    drawMap();
+  });
+
+  // door_states
+  const doorSub = new ROSLIB.Topic({
+    ros, name: '/door_states',
+    messageType: 'rmf_door_msgs/DoorState'
+  });
+  doorSub.subscribe(msg => {
+    doorStates[msg.door_name] = { mode: msg.current_mode.value };
+    updateInfraOverlay();
+    drawMap();
+  });
+
+  // lift_states
+  const liftSub = new ROSLIB.Topic({
+    ros, name: '/lift_states',
+    messageType: 'rmf_lift_msgs/LiftState'
+  });
+  liftSub.subscribe(msg => {
+    liftStates[msg.lift_name] = {
+      current_floor: msg.current_floor,
+      available_floors: msg.available_floors,
+      door_state: msg.door_state_value,
+      motion_state: msg.motion_state_value,
+    };
+    updateInfraOverlay();
+    renderLifts();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BUILDING MAP CANVAS
+// ═══════════════════════════════════════════════════════════════════
+const canvas = document.getElementById('map-canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const wrap = document.getElementById('map-canvas-wrap');
+  canvas.width  = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+  drawMap();
+}
+window.addEventListener('resize', resizeCanvas);
+
+// Pan
+canvas.addEventListener('mousedown', e => {
+  isDragging = true; dragStart = {x: e.clientX - mapOffX, y: e.clientY - mapOffY};
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  mapOffX = e.clientX - dragStart.x;
+  mapOffY = e.clientY - dragStart.y;
+  drawMap();
+});
+window.addEventListener('mouseup', () => { isDragging = false; canvas.style.cursor = 'grab'; });
+
+// Zoom
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const mx = e.offsetX, my = e.offsetY;
+  mapOffX = mx - factor * (mx - mapOffX);
+  mapOffY = my - factor * (my - mapOffY);
+  mapScale *= factor;
+  drawMap();
+}, {passive: false});
+
+function resetMapView() {
+  mapScale = 1; mapOffX = 0; mapOffY = 0;
+  fitMapToCanvas();
+}
+
+function fitMapToCanvas() {
+  if (!buildingData) return;
+  const level = currentLevelData();
+  if (!level) return;
+
+  // Find bounds from nav graph vertices
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  (level.nav_graphs || []).forEach(g =>
+    (g.vertices || []).forEach(v => {
+      minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+      minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+    })
+  );
+  if (!isFinite(minX)) return;
+
+  const pad = 60;
+  const W = canvas.width - pad*2, H = canvas.height - pad*2;
+  const scaleX = W / (maxX - minX || 1);
+  const scaleY = H / (maxY - minY || 1);
+  mapScale = Math.min(scaleX, scaleY);
+  mapOffX = pad - minX * mapScale;
+  mapOffY = pad - minY * mapScale;
+  drawMap();
+}
+
+function worldToCanvas(wx, wy) {
+  return [wx * mapScale + mapOffX, wy * mapScale + mapOffY];
+}
+
+function currentLevelData() {
+  if (!buildingData) return null;
+  return (buildingData.levels || []).find(l => l.name === currentLevel) || buildingData.levels?.[0];
+}
+
+function drawMap() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#080b12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const level = currentLevelData();
+  if (!level) {
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No building map loaded — connect to RMF API', canvas.width/2, canvas.height/2);
+    drawRobots();
+    return;
+  }
+
+  // Draw lanes (edges)
+  (level.nav_graphs || []).forEach(g => {
+    (g.edges || []).forEach(edge => {
+      const v1 = g.vertices?.[edge.v1_idx];
+      const v2 = g.vertices?.[edge.v2_idx];
+      if (!v1 || !v2) return;
+      const [x1, y1] = worldToCanvas(v1.x, v1.y);
+      const [x2, y2] = worldToCanvas(v2.x, v2.y);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+      ctx.strokeStyle = '#1e3a5f';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // Draw waypoints
+    (g.vertices || []).forEach(v => {
+      const [cx, cy] = worldToCanvas(v.x, v.y);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI*2);
+      ctx.fillStyle = '#3b4fd8';
+      ctx.fill();
+      if (v.name) {
+        ctx.fillStyle = '#7c8cf8';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(v.name, cx, cy - 7);
+      }
+    });
+  });
+
+  // Draw door positions (from building data)
+  (level.doors || []).forEach(door => {
+    const mx = (door.v1_x + door.v2_x) / 2;
+    const my = (door.v1_y + door.v2_y) / 2;
+    const [cx, cy] = worldToCanvas(mx, my);
+    const state = doorStates[door.name] || {};
+    const color = state.mode === 2 ? '#22c55e' : state.mode === 1 ? '#f59e0b' : '#ef4444';
+    ctx.beginPath();
+    ctx.moveTo(...worldToCanvas(door.v1_x, door.v1_y));
+    ctx.lineTo(...worldToCanvas(door.v2_x, door.v2_y));
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = color; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(door.name, cx, cy - 6);
+  });
+
+  // Draw lift positions
+  (level.lifts || []).forEach(lift => {
+    const [cx, cy] = worldToCanvas(lift.x, lift.y);
+    const state = liftStates[lift.name] || {};
+    ctx.beginPath();
+    ctx.roundRect(cx - 14, cy - 14, 28, 28, 4);
+    ctx.fillStyle = '#1e3a5f'; ctx.fill();
+    ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#60a5fa'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('LIFT', cx, cy + 3);
+    if (state.current_floor) {
+      ctx.font = '8px sans-serif'; ctx.fillText(state.current_floor, cx, cy + 13);
+    }
+  });
+
+  drawRobots();
+}
+
+function drawRobots() {
+  Object.entries(robotPositions).forEach(([name, r]) => {
+    if (r.level && r.level !== currentLevel) return;
+    const [cx, cy] = worldToCanvas(r.x, r.y);
+
+    // Body circle
+    const modeColors = { 0:'#64748b', 1:'#22c55e', 2:'#60a5fa', 3:'#60a5fa', 5:'#f59e0b', 10:'#ef4444' };
+    const color = modeColors[r.mode] || '#94a3b8';
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(r.yaw || 0);
+
+    // Direction arrow
+    ctx.beginPath();
+    ctx.moveTo(0, -12); ctx.lineTo(5, 2); ctx.lineTo(-5, 2);
+    ctx.closePath();
+    ctx.fillStyle = color + 'aa'; ctx.fill();
+
+    ctx.restore();
+
+    // Robot circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, 9, 0, Math.PI*2);
+    ctx.fillStyle = color; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Name
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(name.substring(0,6), cx, cy + 18);
+
+    // Battery
+    if (r.battery >= 0) {
+      ctx.fillStyle = '#64748b'; ctx.font = '8px sans-serif';
+      ctx.fillText(Math.round(r.battery)+'%', cx, cy + 27);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INFRA OVERLAY (top-right corner of map)
+// ═══════════════════════════════════════════════════════════════════
+function updateInfraOverlay() {
+  const el = document.getElementById('infra-overlay');
+  const doorChips = Object.entries(doorStates).map(([name, s]) => {
+    const color = s.mode === 2 ? 'green' : s.mode === 1 ? 'amber' : 'red';
+    const label = s.mode === 2 ? 'OPEN' : s.mode === 1 ? 'MOVING' : 'CLOSED';
+    return `<div class="infra-chip"><span class="dot ${color}"></span>${name}: ${label}</div>`;
+  });
+  const liftChips = Object.entries(liftStates).map(([name, s]) => {
+    return `<div class="infra-chip"><span class="dot green"></span>${name}: ${s.current_floor||'?'}</div>`;
+  });
+  el.innerHTML = [...doorChips, ...liftChips].join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// BUILDING MAP LOAD
+// ═══════════════════════════════════════════════════════════════════
+async function loadBuilding() {
+  try {
+    buildingData = await fetch('/api/building').then(r => r.ok ? r.json() : null);
+    if (!buildingData) return;
+
+    // Populate level selector
+    const sel = document.getElementById('level-select');
+    sel.innerHTML = (buildingData.levels || []).map(l =>
+      `<option value="${l.name}" ${l.name===currentLevel?'selected':''}>${l.name}</option>`
+    ).join('');
+    sel.addEventListener('change', e => { currentLevel = e.target.value; fitMapToCanvas(); });
+
+    fitMapToCanvas();
+    setDot('rmf-dot', 'green');
+    document.getElementById('rmf-text').textContent = 'RMF API ✓';
+  } catch (_) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CHAT WEBSOCKET
+// ═══════════════════════════════════════════════════════════════════
+const chatWs = new WebSocket(`ws://${location.host}/ws/chat`);
+const statusWs = new WebSocket(`ws://${location.host}/ws/status`);
+let agentEl = null;
+
+chatWs.onopen  = () => { setDot('ws-dot','green'); document.getElementById('ws-text').textContent='Agent ✓'; };
+chatWs.onclose = () => { setDot('ws-dot','red');   document.getElementById('ws-text').textContent='Agent ✗'; };
+
+chatWs.onmessage = e => {
+  const d = JSON.parse(e.data);
+  if (d.type === 'chunk') {
+    if (!agentEl) agentEl = appendMsg('agent', '');
+    agentEl.textContent += d.content;
+    scrollChat();
+  } else if (d.type === 'done') {
+    agentEl = null;
+    enableChat();
+  } else if (d.type === 'error') {
+    appendMsg('system', '⚠ ' + d.content);
+    enableChat();
+  }
+};
+
+statusWs.onmessage = e => {
+  const d = JSON.parse(e.data);
+  if (d.type === 'fleet_snapshot') renderFleets(d.data);
+  if (d.type === 'fleet_update')   renderFleets(d.data);
+  if (d.type === 'approval_resolved') loadApprovals();
+};
+
+function sendMsg() {
+  const text = document.getElementById('chat-input').value.trim();
+  if (!text || document.getElementById('send-btn').disabled) return;
+  appendMsg('user', text);
+  chatWs.send(JSON.stringify({message: text}));
+  document.getElementById('chat-input').value = '';
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('chat-input').disabled = true;
+  agentEl = null; scrollChat();
+}
+function enableChat() {
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('chat-input').disabled = false;
+  document.getElementById('chat-input').focus();
+}
+document.getElementById('send-btn').addEventListener('click', sendMsg);
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+});
+
+function appendMsg(role, text) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + role;
+  el.textContent = text;
+  document.getElementById('chat-messages').appendChild(el);
+  scrollChat(); return el;
+}
+function scrollChat() {
+  const el = document.getElementById('chat-messages');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FLEET SIDEBAR
+// ═══════════════════════════════════════════════════════════════════
+async function loadFleets() {
+  const data = await fetch('/api/fleets').then(r => r.json());
+  renderFleets(data);
+}
+
+function renderFleets(fleets) {
+  const el = document.getElementById('fleet-list');
+  const entries = Object.entries(fleets || {});
+  if (!entries.length) { el.innerHTML = '<div class="empty">No fleets discovered</div>'; return; }
+  el.innerHTML = entries.map(([name, f]) => {
+    const robots = Object.values(f.robots || {});
+    const robotRows = robots.map(r => {
+      const modeLabel = {0:'idle',1:'charging',2:'moving',3:'moving',5:'waiting',10:'error'}[r.mode]||'idle';
+      return `<div class="robot-row"><span class="dot ${r.mode===10?'red':r.mode===1?'amber':'green'}" style="width:6px;height:6px;flex-shrink:0"></span>
+        ${r.name} <span class="tag ${modeLabel}">${modeLabel}</span>
+        ${r.battery_percent>=0?`<span style="margin-left:auto;color:var(--muted);font-size:10px">${Math.round(r.battery_percent)}%</span>`:''}
+      </div>`;
+    }).join('');
+    return `<div class="fleet-card">
+      <div class="fleet-name">${name}</div>
+      <div class="fleet-meta">${f.source} · ${robots.length} robot${robots.length!==1?'s':''}</div>
+      ${robotRows||'<span style="color:var(--muted);font-size:10px">No robots</span>'}
+    </div>`;
+  }).join('');
+}
+
+async function scanFleets() {
+  const data = await fetch('/api/fleets/scan', {method:'POST'}).then(r => r.json());
+  renderFleets(data.fleets || {});
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DOOR SIDEBAR
+// ═══════════════════════════════════════════════════════════════════
+async function loadDoors() {
+  try {
+    const doors = await fetch('/api/doors').then(r => r.ok ? r.json() : []);
+    renderDoors(Array.isArray(doors) ? doors : []);
+  } catch (_) {}
+}
+
+function renderDoors(doors) {
+  const el = document.getElementById('door-list');
+  if (!doors.length) { el.innerHTML = '<div class="empty">No doors found</div>'; return; }
+  el.innerHTML = doors.map(d => {
+    const name = d.door?.name || d.name || '?';
+    const state = doorStates[name] || {};
+    const modeLabel = state.mode === 2 ? 'OPEN' : state.mode === 1 ? 'MOVING' : 'CLOSED';
+    const modeColor = state.mode === 2 ? 'var(--green)' : state.mode === 1 ? 'var(--amber)' : 'var(--red)';
+    return `<div class="door-row">
+      <div>
+        <span style="color:${modeColor}">●</span>
+        <span style="margin-left:5px">${name}</span>
+        <span style="color:var(--muted);font-size:10px;margin-left:4px">${modeLabel}</span>
+      </div>
+      <div class="door-btns">
+        <button class="btn-sm open"  onclick="doorCmd('${name}','open')">Open</button>
+        <button class="btn-sm close" onclick="doorCmd('${name}','close')">Close</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function doorCmd(name, action) {
+  await fetch(`/api/doors/${encodeURIComponent(name)}/${action}`, {method:'POST'});
+  loadDoors();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LIFT SIDEBAR
+// ═══════════════════════════════════════════════════════════════════
+async function loadLifts() {
+  try {
+    const lifts = await fetch('/api/lifts').then(r => r.ok ? r.json() : []);
+    renderLifts(Array.isArray(lifts) ? lifts : []);
+  } catch (_) {}
+}
+
+function renderLifts(lifts) {
+  const el = document.getElementById('lift-list');
+  const liftArr = Array.isArray(lifts) ? lifts : Object.values(lifts);
+  if (!liftArr.length) { el.innerHTML = '<div class="empty">No lifts found</div>'; return; }
+  el.innerHTML = liftArr.map(lft => {
+    const name = lft.name || '?';
+    const state = liftStates[name] || lft.state || {};
+    const floors = state.available_floors || lft.levels || [];
+    const curFloor = state.current_floor || '?';
+    const floorBtns = floors.map(f =>
+      `<button class="btn-floor ${f===curFloor?'active':''}" onclick="callLift('${name}','${f}')">${f}</button>`
+    ).join('');
+    return `<div class="lift-row">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-weight:600;color:var(--accent)">${name}</span>
+        <span style="color:var(--muted);font-size:11px">Floor: <b style="color:var(--text)">${curFloor}</b></span>
+      </div>
+      <div class="lift-floor-btns">${floorBtns||'<span style="color:var(--muted);font-size:10px">No floors</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+async function callLift(name, floor) {
+  await fetch(`/api/lifts/${encodeURIComponent(name)}/request?destination_floor=${encodeURIComponent(floor)}`, {method:'POST'});
+  loadLifts();
+}
+
+async function refreshInfra() {
+  loadDoors(); loadLifts(); loadFleets();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// APPROVALS
+// ═══════════════════════════════════════════════════════════════════
+async function loadApprovals() {
+  const data = await fetch('/api/approvals').then(r => r.json());
+  const badge = document.getElementById('approval-badge');
+  badge.textContent = data.length ? `(${data.length})` : '';
+  const el = document.getElementById('approval-list');
+  if (!data.length) { el.innerHTML = '<div class="empty">No pending approvals</div>'; return; }
+  el.innerHTML = data.map(a => `
+    <div class="approval-card" id="ap-${a.id}">
+      <div class="approval-action">${a.action}</div>
+      <div class="approval-desc">${a.description}</div>
+      <div class="approval-btns">
+        <button class="btn-approve" onclick="resolveApproval('${a.id}',true)">Approve</button>
+        <button class="btn-reject"  onclick="resolveApproval('${a.id}',false)">Reject</button>
+      </div>
+    </div>`).join('');
+}
+
+async function resolveApproval(id, approved) {
+  await fetch(`/api/approvals/${id}/${approved?'approve':'reject'}`, {method:'POST'});
+  document.getElementById('ap-'+id)?.remove();
+  loadApprovals();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TASK LOG
+// ═══════════════════════════════════════════════════════════════════
+async function loadTasks() {
+  try {
+    const data = await fetch('/api/tasks').then(r => r.ok ? r.json() : []);
+    const tasks = Array.isArray(data) ? data : [];
+    const el = document.getElementById('task-log');
+    if (!tasks.length) { el.innerHTML = '<div class="empty">No tasks yet</div>'; return; }
+    const statusCls = {underway:'color:#60a5fa',completed:'color:#22c55e',
+                       failed:'color:#ef4444',error:'color:#ef4444',queued:'color:#a78bfa'};
+    el.innerHTML = tasks.slice(0,20).map(t => {
+      const id = t.booking?.id || t.id || '?';
+      const st = t.status || 'unknown';
+      return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:11px;display:flex;gap:6px;align-items:center">
+        <span style="color:var(--accent);font-family:monospace">${id.substring(0,8)}</span>
+        <span style="${statusCls[st]||'color:var(--muted)'}">${st}</span>
+        <span style="color:var(--muted);margin-left:auto">${t.category||''}</span>
+      </div>`;
+    }).join('');
+  } catch (_) {}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════════════
+function setDot(id, color) {
+  const el = document.getElementById(id);
+  if (el) el.style.background = `var(--${color})`;
+}
+
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+resizeCanvas();
+loadBuilding();
+loadFleets();
+loadDoors();
+loadLifts();
+loadApprovals();
+loadTasks();
+initRosBridge();
+
+setInterval(loadApprovals, 5000);
+setInterval(loadTasks, 10000);
+setInterval(refreshInfra, 15000);
+
+</script>
+</body>
+</html>
