@@ -346,7 +346,7 @@ _GZ_SKIP_KEYS = (
 )
 _GZ_SKIP_PKGS = (
     "rmf_robot_sim_gz_plugins rmf_building_sim_gz_plugins rmf_demos_gz "
-    "rmf_robot_sim_common rmf_building_map_tools rmf_demos_maps"
+    "rmf_robot_sim_common rmf_demos_maps"
 )
 
 _RMF_SOURCE_BUILD_CMD = f"""\
@@ -381,7 +381,7 @@ def step_rmf_install():
         return
 
     # Check if core packages are built (rmf_traffic + rmf_fleet_adapter both required)
-    if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter"):
+    if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter && test -d ~/rmf_ws/install/rmf_demos"):
         ok("Open-RMF workspace already built.")
         return
 
@@ -397,7 +397,7 @@ def step_rmf_install():
     if ask_bool("Build Open-RMF from source now inside WSL2? (requires sudo, ~20-30 min)", default=True):
         print(yellow("\n  WSL2 output below. Enter sudo password if prompted.\n"))
         wsl_run(_RMF_SOURCE_BUILD_CMD, stream=True)
-        if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter"):
+        if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter && test -d ~/rmf_ws/install/rmf_demos"):
             ok("Open-RMF built and installed successfully.")
         else:
             err("Build may have failed — check output above.")
