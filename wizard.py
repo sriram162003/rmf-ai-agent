@@ -353,6 +353,8 @@ _RMF_SOURCE_BUILD_CMD = f"""\
 sudo apt install -y python3-vcstool python3-colcon-common-extensions python3-rosdep && \
 mkdir -p ~/rmf_ws/src && cd ~/rmf_ws && \
 curl -fsSL https://raw.githubusercontent.com/open-rmf/rmf/main/rmf.repos | vcs import src/ && \
+git clone https://github.com/open-rmf/rmf_api_server.git src/rmf_api_server 2>/dev/null || true && \
+pip3 install fastapi uvicorn pydantic aiohttp rx && \
 sudo rosdep init 2>/dev/null || true && rosdep update && \
 rosdep install --from-paths src --ignore-src -y --rosdistro humble --skip-keys "{_GZ_SKIP_KEYS}" && \
 source /opt/ros/humble/setup.bash && \
@@ -365,6 +367,8 @@ _RMF_BUILD_STEPS = [
     "sudo apt install -y python3-vcstool python3-colcon-common-extensions python3-rosdep",
     "mkdir -p ~/rmf_ws/src && cd ~/rmf_ws",
     "curl -fsSL https://raw.githubusercontent.com/open-rmf/rmf/main/rmf.repos | vcs import src/",
+    "git clone https://github.com/open-rmf/rmf_api_server.git src/rmf_api_server 2>/dev/null || true",
+    "pip3 install fastapi uvicorn pydantic aiohttp rx",
     "sudo rosdep init 2>/dev/null || true && rosdep update",
     f'rosdep install --from-paths src --ignore-src -y --rosdistro humble --skip-keys "{_GZ_SKIP_KEYS}"',
     "source /opt/ros/humble/setup.bash",
@@ -381,7 +385,7 @@ def step_rmf_install():
         return
 
     # Check if core packages are built (rmf_traffic + rmf_fleet_adapter both required)
-    if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter && test -d ~/rmf_ws/install/rmf_demos && test -d ~/rmf_ws/install/rmf_demos_maps"):
+    if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter && test -d ~/rmf_ws/install/rmf_demos && test -d ~/rmf_ws/install/rmf_demos_maps && test -d ~/rmf_ws/install/rmf_api_server"):
         ok("Open-RMF workspace already built.")
         return
 
@@ -397,7 +401,7 @@ def step_rmf_install():
     if ask_bool("Build Open-RMF from source now inside WSL2? (requires sudo, ~20-30 min)", default=True):
         print(yellow("\n  WSL2 output below. Enter sudo password if prompted.\n"))
         wsl_run(_RMF_SOURCE_BUILD_CMD, stream=True)
-        if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter && test -d ~/rmf_ws/install/rmf_demos && test -d ~/rmf_ws/install/rmf_demos_maps"):
+        if wsl_check("test -d ~/rmf_ws/install/rmf_traffic && test -d ~/rmf_ws/install/rmf_fleet_adapter && test -d ~/rmf_ws/install/rmf_demos && test -d ~/rmf_ws/install/rmf_demos_maps && test -d ~/rmf_ws/install/rmf_api_server"):
             ok("Open-RMF built and installed successfully.")
         else:
             err("Build may have failed — check output above.")
